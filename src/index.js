@@ -1,14 +1,20 @@
 // src/index.js
 
+// Load environment variables FIRST. This MUST be the very first line.
+require('dotenv').config();
+
+// --- Sanity Check: Add this block to debug ---
+console.log('--- Checking Environment Variables ---');
+console.log(`SNYK_API_KEY: ${process.env.SNYK_API_KEY}`);
+console.log(`SNYK_ORG_ID: ${process.env.SNYK_ORG_ID}`);
+console.log('------------------------------------');
+// --- End of Sanity Check ---
+
 /**
  * SnykAudit - Main Application Entry Point
- * 
- * This file initializes and starts the SnykAudit chatbot, connecting all components
+ * * This file initializes and starts the SnykAudit chatbot, connecting all components
  * and providing the main application lifecycle management.
  */
-
-// Load environment variables
-require('dotenv').config();
 
 // Import dependencies
 const express = require('express');

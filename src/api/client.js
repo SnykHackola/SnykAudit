@@ -2,12 +2,11 @@
 
 /**
  * Snyk Audit API Client
- * 
- * This client handles the low-level communication with the Snyk Audit API,
+ * * This client handles the low-level communication with the Snyk Audit API,
  * including authentication, request formatting, and error handling.
  */
 
-const { httpGet, requestWithRetry, parseHttpError, defaultLogger } = require('../utils');
+const { requestWithRetry, parseHttpError, defaultLogger } = require('../utils');
 const axios = require('axios');
 
 // Create a logger for this module
@@ -25,9 +24,9 @@ class SnykApiClient {
     }
     
     this.apiKey = apiKey;
-    this.baseUrl = config.baseUrl || 'https://api.snyk.io';
-    this.apiVersion = config.apiVersion || '2021-06-04'; // API version from Snyk documentation
-    this.timeout = config.timeout || 10000;
+    this.baseUrl = config.baseUrl || 'https://api.snyk.io'; // CORRECTED: Base URL for REST API
+    this.apiVersion = '2024-10-15'; // CORRECTED: Using the version from the documentation
+    this.timeout = config.timeout || 15000;
     this.retryConfig = {
       retries: config.retries || 3,
       retryDelay: config.retryDelay || 1000,
@@ -45,47 +44,65 @@ class SnykApiClient {
       baseURL: this.baseUrl,
       timeout: this.timeout,
       headers: {
-        'Authorization': this.apiKey,
+        'Authorization': `token ${this.apiKey}`,
         'Accept': 'application/vnd.api+json',
-        'Content-Type': 'application/vnd.api+json',
-        'snyk-version-requested': this.apiVersion
       }
     });
   }
 
   /**
-   * Make a request to the Snyk API
+   * Make a request to the Snyk API with retry logic.
    * @param {Object} config - Request configuration
-   * @returns {Promise<Object>} - API response
+   * @returns {Promise<Object>} - API response data
    * @private
    */
   async _request(config) {
-    try {
-      logger.debug(`Making ${config.method} request to ${config.url}`, config.params);
-      
-      const client = this._createClient();
-      const response = await requestWithRetry(config, this.retryConfig);
-      
-      logger.debug(`Received response from ${config.url}`, { 
-        status: response.status,
-        dataSize: JSON.stringify(response.data).length
-      });
-      
-      return response.data;
-    } catch (error) {
-      const httpError = parseHttpError(error);
-      logger.error(`API request failed: ${httpError.message}`, {
-        url: config.url,
-        method: config.method,
-        status: httpError.status
-      });
-      
-      throw httpError;
+    const client = this._createClient();
+    const retryConfig = this.retryConfig;
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= retryConfig.retries; attempt++) {
+      try {
+        // Add the API version to the params for each request
+        const requestConfig = {
+            ...config,
+            params: {
+                ...config.params,
+                version: this.apiVersion
+            }
+        };
+        logger.debug(`Making ${requestConfig.method.toUpperCase()} request to ${requestConfig.url}`, { params: requestConfig.params });
+        const response = await client(requestConfig);
+        logger.debug(`Received response from ${requestConfig.url}`, { 
+          status: response.status,
+          dataSize: response.data ? JSON.stringify(response.data).length : 0
+        });
+        return response.data;
+
+      } catch (error) {
+        lastError = error;
+        const status = error.response?.status;
+
+        if (attempt < retryConfig.retries && retryConfig.retryStatusCodes.includes(status)) {
+          const delay = retryConfig.retryDelay * Math.pow(2, attempt);
+          logger.warn(`API request failed with status ${status}. Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          const httpError = parseHttpError(error);
+          logger.error(`API request failed: ${httpError.message}`, {
+            url: config.url,
+            method: config.method,
+            status: httpError.status,
+          });
+          throw httpError;
+        }
+      }
     }
+    throw lastError;
   }
 
   /**
-   * Search organization audit logs
+   * Search organization audit logs using the REST API.
    * @param {string} orgId - Organization ID
    * @param {Object} params - Search parameters
    * @returns {Promise<Object>} - Audit log results
@@ -95,68 +112,66 @@ class SnykApiClient {
       throw new Error('Organization ID is required');
     }
     
-    const url = `/rest/orgs/${orgId}/audit_logs/search`;
+    const url = `/rest/orgs/${orgId}/audit_logs/search`; 
     return this._request({
       url,
-      method: 'get',
-      params: this._formatAuditParams(params)
+      method: 'get', // REST endpoint uses GET
+      params: this._formatAuditParamsRest(params)
     });
   }
-
+  
   /**
-   * Search group audit logs
+   * Search group audit logs using the REST API.
    * @param {string} groupId - Group ID
    * @param {Object} params - Search parameters
    * @returns {Promise<Object>} - Audit log results
    */
   async searchGroupAuditLogs(groupId, params = {}) {
     if (!groupId) {
-      throw new Error('Group ID is required');
+        throw new Error('Group ID is required');
     }
-    
+
     const url = `/rest/groups/${groupId}/audit_logs/search`;
     return this._request({
-      url,
-      method: 'get',
-      params: this._formatAuditParams(params)
+        url,
+        method: 'get', // REST endpoint uses GET
+        params: this._formatAuditParamsRest(params)
     });
   }
 
   /**
-   * Format audit log search parameters
+   * Format audit log search parameters for the REST API.
    * @param {Object} params - Raw search parameters
-   * @returns {Object} - Formatted parameters
+   * @returns {Object} - Formatted query parameters
    * @private
    */
-  _formatAuditParams(params) {
-    // Make a copy to avoid modifying the original
-    const formattedParams = { ...params };
-    
-    // Format dates if provided
-    if (formattedParams.from_date && !(formattedParams.from_date instanceof Date)) {
-      formattedParams.from_date = new Date(formattedParams.from_date).toISOString();
+  _formatAuditParamsRest(params) {
+    const queryParams = {};
+    if (params.from_date) {
+        queryParams.from = params.from_date instanceof Date ? params.from_date.toISOString() : params.from_date;
     }
-    
-    if (formattedParams.to_date && !(formattedParams.to_date instanceof Date)) {
-      formattedParams.to_date = new Date(formattedParams.to_date).toISOString();
+    if (params.to_date) {
+        queryParams.to = params.to_date instanceof Date ? params.to_date.toISOString() : params.to_date;
     }
-    
-    // Format events array into comma-separated string
-    if (Array.isArray(formattedParams.events)) {
-      formattedParams.events = formattedParams.events.join(',');
+    if (params.user_id) {
+        queryParams['user_ids'] = params.user_id;
     }
-    
-    // Format exclude_events array into comma-separated string
-    if (Array.isArray(formattedParams.exclude_events)) {
-      formattedParams.exclude_events = formattedParams.exclude_events.join(',');
+    if (params.project_id) {
+        queryParams['project_ids'] = params.project_id;
     }
-    
-    return formattedParams;
+    if (params.events) {
+        queryParams['events'] = params.events;
+    }
+    if(params.starting_after) {
+        queryParams.starting_after = params.starting_after;
+    }
+
+    return queryParams;
   }
 
   /**
-   * Fetch all pages of audit logs
-   * @param {Function} searchFunction - The search function to use
+   * Fetch all pages of audit logs from the REST API.
+   * @param {Function} searchFunction - The search function to use (searchOrgAuditLogs or searchGroupAuditLogs)
    * @param {string} id - Organization or Group ID
    * @param {Object} params - Search parameters
    * @returns {Promise<Array>} - Complete list of audit log items
@@ -170,28 +185,25 @@ class SnykApiClient {
     logger.debug(`Starting paginated fetch for ${searchFunction.name} with ID ${id}`);
     
     while (hasMorePages) {
-      // Add cursor to params if we have one
       const searchParams = nextCursor 
         ? { ...params, starting_after: nextCursor } 
         : params;
       
-      // Call the search function (either searchOrgAuditLogs or searchGroupAuditLogs)
       const response = await searchFunction.call(this, id, searchParams);
       
-      logger.debug(`Fetched page ${page} with ${response.data?.items?.length || 0} items`);
+      logger.debug(`Fetched page ${page} with ${response.data?.length || 0} items`);
       
-      // Add items to our collection
-      if (response.data && response.data.items) {
-        allItems = [...allItems, ...response.data.items];
+      // CORRECTED: Check for response.data and ensure it's an array before spreading
+      if (response.data && Array.isArray(response.data)) {
+        allItems = [...allItems, ...response.data];
       }
       
-      // Check if there are more pages
       if (response.links && response.links.next) {
-        // Extract cursor from next link
         try {
-          const nextUrl = new URL(response.links.next);
+          // The 'next' link is a relative path, extract the cursor from it.
+          const nextUrl = new URL(response.links.next, this.baseUrl);
           nextCursor = nextUrl.searchParams.get('starting_after');
-          hasMorePages = true;
+          hasMorePages = !!nextCursor;
           page++;
         } catch (error) {
           logger.error('Failed to parse next link URL', error);
@@ -201,7 +213,6 @@ class SnykApiClient {
         hasMorePages = false;
       }
       
-      // Safety check to prevent infinite loops
       if (page > 100) {
         logger.warn('Reached maximum page limit (100), stopping pagination');
         hasMorePages = false;
@@ -209,7 +220,13 @@ class SnykApiClient {
     }
     
     logger.info(`Completed fetching all pages. Total items: ${allItems.length}`);
-    return allItems;
+    // The v1 API returned {logs: [...]}, the REST API returns {data: [...]}, so we need to transform the shape
+    // to match what the rest of the application expects.
+    return allItems.map(item => ({
+        created: item.attributes.created,
+        event: item.attributes.event,
+        content: item.attributes.content,
+    }));
   }
 
   /**
@@ -228,24 +245,6 @@ class SnykApiClient {
     };
     
     return this.fetchAllPages(this.searchOrgAuditLogs, orgId, params);
-  }
-
-  /**
-   * Get all group audit logs for a specific time period
-   * @param {string} groupId - Group ID
-   * @param {Date|string} fromDate - Start date
-   * @param {Date|string} toDate - End date
-   * @param {Object} options - Additional options
-   * @returns {Promise<Array>} - Complete list of audit log items
-   */
-  async getAllGroupAuditLogs(groupId, fromDate, toDate, options = {}) {
-    const params = {
-      from_date: fromDate,
-      to_date: toDate,
-      ...options
-    };
-    
-    return this.fetchAllPages(this.searchGroupAuditLogs, groupId, params);
   }
 
   /**
@@ -300,7 +299,6 @@ class SnykApiClient {
    * @returns {Promise<Array>} - Security audit log items
    */
   async getSecurityAuditLogs(orgId, fromDate, options = {}) {
-    // Define security-related event types
     const securityEvents = [
       'org.policy.create', 'org.policy.edit', 'org.policy.delete',
       'org.ignore_policy.edit',
@@ -314,7 +312,7 @@ class SnykApiClient {
     
     const params = {
       from_date: fromDate,
-      events: securityEvents,
+      events: securityEvents.join(','),
       ...options
     };
     

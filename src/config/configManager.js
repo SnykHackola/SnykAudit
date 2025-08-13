@@ -11,51 +11,66 @@ class ConfigManager {
   }
 
   /**
-   * Initialize configuration
+   * Initialize configuration, prioritizing environment variables.
    * @returns {Promise<Object>} - Configuration object
    */
   async init() {
+    // Default config structure
+    let baseConfig = {
+      encrypted: false,
+      apiKey: '',
+      orgId: '',
+      groupId: '',
+      baseUrl: 'https://api.snyk.io',
+      defaultDays: 7,
+      businessHoursStart: 8,
+      businessHoursEnd: 18,
+      timezone: 'UTC'
+    };
+
+    // Try to load config from the JSON file if it exists
     try {
-      // Check if config file exists
       await fs.access(this.configPath);
-      
-      // Read and parse config
       const configData = await fs.readFile(this.configPath, 'utf8');
-      this.config = JSON.parse(configData);
-      
-      // Decrypt sensitive information
-      if (this.config.encrypted) {
-        this._decryptConfig();
+      const fileConfig = JSON.parse(configData);
+      baseConfig = { ...baseConfig, ...fileConfig };
+
+      // Decrypt the API key from the file if it's encrypted
+      if (baseConfig.encrypted && baseConfig.apiKey) {
+        try {
+          baseConfig.apiKey = this._decrypt(baseConfig.apiKey);
+        } catch (error) {
+          console.warn(`Failed to decrypt API key from ${this.configPath}. Please check your ENCRYPTION_KEY.`);
+          baseConfig.apiKey = ''; // Clear key on decryption failure
+        }
       }
     } catch (error) {
-      // Config doesn't exist or is invalid, create default
-      this.config = {
-        encrypted: true,
-        apiKey: '',
-        orgId: '',
-        groupId: '',
-        baseUrl: 'https://api.snyk.io',
-        defaultDays: 7,
-        businessHoursStart: 8,
-        businessHoursEnd: 18,
-        timezone: 'UTC'
-      };
+      // It's okay if the file doesn't exist; we'll rely on environment variables or defaults.
     }
+
+    // Prioritize environment variables over file-based config
+    this.config = {
+      ...baseConfig,
+      apiKey: process.env.SNYK_API_KEY || baseConfig.apiKey,
+      orgId: process.env.SNYK_ORG_ID || baseConfig.orgId,
+      groupId: process.env.SNYK_GROUP_ID || baseConfig.groupId,
+    };
     
     return this.config;
   }
 
   /**
-   * Save configuration
+   * Save configuration to the JSON file.
+   * Note: This will persist the current state, which might have been loaded from environment variables.
    * @returns {Promise<void>}
    */
   async save() {
-    // Create a copy of the config to encrypt
+    // Create a copy of the config to encrypt and save
     const configToSave = { ...this.config };
     
-    // Encrypt sensitive data if encryption is enabled
-    if (configToSave.encrypted) {
-      this._encryptConfig(configToSave);
+    // Ensure encryption is explicitly enabled before encrypting
+    if (configToSave.encrypted && configToSave.apiKey) {
+      configToSave.apiKey = this._encrypt(configToSave.apiKey);
     }
     
     // Write to file
@@ -67,31 +82,24 @@ class ConfigManager {
   }
 
   /**
-   * Update configuration values
+   * Update configuration values and save them.
    * @param {Object} updates - Configuration updates
    * @returns {Object} - Updated configuration
    */
   async update(updates) {
-    // Make sure config is initialized
     if (!this.config) {
       await this.init();
     }
     
-    // Apply updates
-    this.config = {
-      ...this.config,
-      ...updates
-    };
-    
-    // Save updated config
+    this.config = { ...this.config, ...updates };
     await this.save();
     
     return this.config;
   }
 
   /**
-   * Get current configuration
-   * @returns {Object} - Configuration object
+   * Get the current configuration.
+   * @returns {Promise<Object>} - Configuration object
    */
   async getConfig() {
     if (!this.config) {
@@ -101,7 +109,7 @@ class ConfigManager {
   }
 
   /**
-   * Set API key
+   * Set API key and save configuration.
    * @param {string} apiKey - Snyk API key
    * @returns {Promise<void>}
    */
@@ -115,42 +123,9 @@ class ConfigManager {
   }
 
   /**
-   * Encrypt sensitive configuration data
-   * @param {Object} configObj - Configuration object to encrypt
-   * @private
-   */
-  _encryptConfig(configObj) {
-    const sensitiveFields = ['apiKey'];
-    
-    sensitiveFields.forEach(field => {
-      if (configObj[field]) {
-        configObj[field] = this._encrypt(configObj[field]);
-      }
-    });
-  }
-
-  /**
-   * Decrypt sensitive configuration data
-   * @private
-   */
-  _decryptConfig() {
-    const sensitiveFields = ['apiKey'];
-    
-    sensitiveFields.forEach(field => {
-      if (this.config[field]) {
-        try {
-          this.config[field] = this._decrypt(this.config[field]);
-        } catch (error) {
-          console.warn(`Failed to decrypt ${field}`);
-        }
-      }
-    });
-  }
-
-  /**
-   * Encrypt a string
+   * Encrypt a string using the configured encryption key.
    * @param {string} text - Text to encrypt
-   * @returns {string} - Encrypted text
+   * @returns {string} - Encrypted text in 'iv:encryptedData' format
    * @private
    */
   _encrypt(text) {
@@ -168,13 +143,16 @@ class ConfigManager {
   }
 
   /**
-   * Decrypt a string
-   * @param {string} text - Encrypted text
+   * Decrypt an encrypted string.
+   * @param {string} text - Encrypted text in 'iv:encryptedData' format
    * @returns {string} - Decrypted text
    * @private
    */
   _decrypt(text) {
     const [ivHex, encryptedHex] = text.split(':');
+    if (!ivHex || !encryptedHex) {
+      throw new Error('Invalid encrypted text format. Expected "iv:encryptedData".');
+    }
     const iv = Buffer.from(ivHex, 'hex');
     
     const decipher = crypto.createDecipheriv(

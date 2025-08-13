@@ -1,5 +1,5 @@
 // src/core/snykChatbotWrapper.js
-const SnykAuditService = require('../api/snykAuditService');
+const { SnykAuditService } = require('../api');
 const SecurityEventAnalyzer = require('./securityEventAnalyzer');
 const UserActivityAnalyzer = require('./userActivityAnalyzer');
 const AnomalyDetector = require('./anomalyDetector');
