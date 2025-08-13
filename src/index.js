@@ -12,7 +12,7 @@ require('dotenv').config();
 
 // Import dependencies
 const express = require('express');
-const { WebhookHandler, SlackIntegration } = require('./platforms');
+const { WebhookHandler, SlackIntegration } = require('./platform');
 const { ConfigManager } = require('./config');
 const { defaultLogger } = require('./utils');
 

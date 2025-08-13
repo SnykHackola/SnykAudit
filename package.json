@@ -1,0 +1,26 @@
+{
+  "name": "snyk-audit-chatbot",
+  "version": "0.1.0",
+  "description": "A chatbot for monitoring security events and user activities using the Snyk Audit API",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@slack/bolt": "^3.13.0",
+    "axios": "^1.4.0",
+    "body-parser": "^1.20.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "jest": "^29.6.1",
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "private": true
+}
