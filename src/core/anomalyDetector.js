@@ -1,7 +1,10 @@
 // src/core/anomalyDetector.js
 
 class AnomalyDetector {
-  constructor() {
+  constructor(auditService = null) {
+    // Store the audit service for user info lookup
+    this.auditService = auditService;
+    
     // Define security-critical events
     this.securityCriticalEvents = [
       'org.policy.create', 'org.policy.edit', 'org.policy.delete',
@@ -76,7 +79,7 @@ class AnomalyDetector {
       // Check if event occurred outside business hours
       if ((hour < this.businessHoursStart || hour > this.businessHoursEnd) && 
           this.securityCriticalEvents.includes(event.event)) {
-        const user = event.content?.user_id || event.content?.performed_by || 'unknown';
+        const user = event.user_id || event.content?.user_id || event.content?.performed_by || 'unknown';
         
         suspiciousActivities.push({
           type: 'after_hours_activity',
@@ -91,7 +94,7 @@ class AnomalyDetector {
     
     // 3. Check for service account unusual activity
     events.forEach(event => {
-      const user = event.content?.user_id || event.content?.performed_by || 'unknown';
+      const user = event.user_id || event.content?.user_id || event.content?.performed_by || 'unknown';
       
       // If user name contains service, bot, or automation
       if (
@@ -122,7 +125,7 @@ class AnomalyDetector {
    * @param {number} days - Number of days analyzed
    * @returns {string} - Summary message
    */
-  generateSuspiciousActivitySummary(suspiciousActivities, days = 2) {
+  async generateSuspiciousActivitySummary(suspiciousActivities, days = 2) {
     let message = '';
     
     if (suspiciousActivities.length > 0) {
@@ -138,37 +141,40 @@ class AnomalyDetector {
       });
       
       // Format each type of suspicious activity
-      Object.keys(groupedActivities).forEach(type => {
+      for (const type of Object.keys(groupedActivities)) {
         const activities = groupedActivities[type];
         
         switch (type) {
           case 'high_volume_sensitive_actions':
-            activities.forEach(activity => {
-              message += `⚠️ User ${activity.user} performed ${activity.count} ${this._formatEventType(activity.eventType)} actions\n`;
-            });
+            for (const activity of activities) {
+              const userDisplay = await this._formatUser(activity.user);
+              message += `⚠️ User ${userDisplay} performed ${activity.count} ${this._formatEventType(activity.eventType)} actions\n`;
+            }
             break;
             
           case 'after_hours_activity':
-            activities.forEach(activity => {
+            for (const activity of activities) {
               const time = new Date(activity.time).toLocaleTimeString();
-              message += `⚠️ After-hours activity: ${this._formatEventType(activity.eventType)} by ${activity.user} at ${time}\n`;
-            });
+              const userDisplay = await this._formatUser(activity.user);
+              message += `⚠️ After-hours activity: ${this._formatEventType(activity.eventType)} by ${userDisplay} at ${time}\n`;
+            }
             break;
             
           case 'service_account_unusual_activity':
-            activities.forEach(activity => {
-              message += `⚠️ Service account "${activity.user}" performed unusual action: ${this._formatEventType(activity.eventType)}\n`;
-            });
+            for (const activity of activities) {
+              const userDisplay = await this._formatUser(activity.user);
+              message += `⚠️ Service account "${userDisplay}" performed unusual action: ${this._formatEventType(activity.eventType)}\n`;
+            }
             break;
             
           default:
-            activities.forEach(activity => {
+            for (const activity of activities) {
               message += `⚠️ ${activity.description}\n`;
-            });
+            }
         }
         
         message += '\n';
-      });
+      }
     } else {
       message = `Good news! I didn't detect any suspicious activities in the last ${days} days.`;
     }
@@ -186,7 +192,7 @@ class AnomalyDetector {
     const userEventCounts = {};
     
     events.forEach(event => {
-      const user = event.content?.user_id || event.content?.performed_by || 'unknown';
+      const user = event.user_id || event.content?.user_id || event.content?.performed_by || 'unknown';
       const eventType = event.event;
       
       if (!userEventCounts[user]) {
@@ -229,6 +235,32 @@ class AnomalyDetector {
         // Just clean up the raw event type
         return eventType.replace(/\./g, ' ').replace(/org |group /, '');
     }
+  }
+
+  /**
+   * Format user ID to user-friendly display
+   * @param {string} userId - User ID to format
+   * @returns {Promise<string>} - Formatted user display
+   * @private
+   */
+  async _formatUser(userId) {
+    if (!userId || userId === 'unknown') {
+      return 'unknown';
+    }
+    
+    // If we have an audit service, use it to get user info
+    if (this.auditService) {
+      try {
+        const userInfo = await this.auditService.getUserInfo(userId);
+        return userInfo.displayName || userId.substring(0, 8);
+      } catch (error) {
+        console.error(`Error formatting user ${userId}:`, error);
+        return userId.substring(0, 8);
+      }
+    }
+    
+    // Fallback to just showing a short version of the user ID
+    return userId.substring(0, 8);
   }
 }
 

@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snyk Audit Assistant</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <style>
+        /* All your CSS styles go here */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0C1E44; /* Snyk dark blue background */
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .chat-container {
+            background: #FFFFFF;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 800px;
+            height: 80vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .chat-header {
+            background: #0C1E44; /* Snyk dark blue */
+            color: white;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .bot-avatar {
+            width: 50px;
+            height: 50px;
+            background: #4B48DB; /* Snyk purple */
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .header-text h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .header-text p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .status-indicator {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #FF5A5F; /* Snyk red */
+        }
+
+        .status-dot.pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .config-panel {
+            background: #F8F9FB; /* Lighter Snyk background */
+            border-bottom: 1px solid #E5E8ED;
+            padding: 15px 20px;
+            display: none;
+        }
+
+        .config-panel.show {
+            display: block;
+        }
+
+        .config-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+            align-items: flex-end;
+        }
+
+        .config-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .config-group {
+            flex: 1;
+        }
+
+        .config-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            color: #64748b;
+            margin-bottom: 5px;
+        }
+
+        .config-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .config-group input:focus {
+            outline: none;
+            border-color: #4B48DB; /* Snyk purple */
+            box-shadow: 0 0 0 3px rgba(75, 72, 219, 0.1);
+        }
+
+        .config-button {
+            background: #4B48DB; /* Snyk purple */
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 25px; /* More rounded like Snyk buttons */
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            height: 35px;
+        }
+
+        .config-button:hover {
+            background: #3835A9; /* Darker Snyk purple */
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 12px;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: messageSlideIn 0.3s ease-out forwards;
+        }
+
+        @keyframes messageSlideIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .message.bot .message-avatar {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+
+        .message-content {
+            flex: 1;
+            max-width: 70%;
+        }
+
+        .message-bubble {
+            padding: 15px 18px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+
+        .message.user .message-bubble {
+            background: #4B48DB; /* Snyk purple */
+            color: white;
+            border-bottom-right-radius: 6px;
+        }
+
+        .message.bot .message-bubble {
+            background: #F8F9FB; /* Lighter Snyk background */
+            color: #0C1E44; /* Snyk dark blue */
+            border-bottom-left-radius: 6px;
+        }
+
+        .message-time {
+            font-size: 11px;
+            color: #94a3b8;
+            margin-top: 5px;
+            text-align: right;
+        }
+
+        .message.bot .message-time {
+            text-align: left;
+        }
+
+        .typing-indicator {
+            display: none;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            padding: 0 20px;
+        }
+
+        .typing-indicator.show {
+            display: flex;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+            padding: 15px 18px;
+            background: #f1f5f9;
+            border-radius: 18px;
+            border-bottom-left-radius: 6px;
+        }
+
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #94a3b8;
+            animation: typingBounce 1.4s infinite;
+        }
+
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typingBounce {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-10px); }
+        }
+
+        .chat-input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .chat-input-wrapper {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .chat-input {
+            flex: 1;
+            min-height: 44px;
+            max-height: 120px;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 22px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .chat-input:focus {
+            border-color: #4B48DB; /* Snyk purple */
+            box-shadow: 0 0 0 3px rgba(75, 72, 219, 0.1);
+        }
+        
+        .send-button {
+            width: 44px;
+            height: 44px;
+            background: #4B48DB; /* Snyk purple */
+            border: none;
+            border-radius: 50%;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+            flex-shrink: 0;
+        }
+
+        .send-button:hover:not(:disabled) {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(75, 72, 219, 0.4); /* Snyk purple shadow */
+        }
+
+        .send-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .quick-actions {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .quick-action {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 20px;
+            padding: 8px 16px;
+            font-size: 12px;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-action:hover {
+            background: #4facfe;
+            color: white;
+            border-color: #4facfe;
+        }
+
+        .settings-button {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 8px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .settings-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .error-message {
+            background: #FFF5F5;
+            border: 1px solid #FFD7D7;
+            color: #FF5A5F; /* Snyk red */
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin: 0 20px 15px 20px;
+            font-size: 14px;
+        }
+
+        .welcome-message {
+            text-align: center;
+            color: #64748b;
+            font-size: 14px;
+            margin: 40px 0;
+        }
+
+        .welcome-message h3 {
+            color: #0C1E44; /* Snyk dark blue */
+            margin-bottom: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .chat-container {
+                height: 100vh;
+                border-radius: 0;
+            }
+            
+            .config-row {
+                flex-direction: column;
+                gap: 10px;
+                align-items: stretch;
+            }
+            
+            .message-content {
+                max-width: 85%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <!-- Header -->
+        <div class="chat-header">
+            <div class="bot-avatar"><img src="/snyk-logo.png" alt="Snyk" style="width: 30px; height: 30px;"></div>
+            <div class="header-text">
+                <h1>SnykAudit Assistant</h1>
+                <p>Your intelligent Snyk security audit companion</p>
+            </div>
+            <button class="settings-button" onclick="snykAuditUI.toggleConfig()" title="Settings">
+                ⚙️
+            </button>
+            <div class="status-indicator">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Not Connected</span>
+            </div>
+        </div>
+
+        <!-- Configuration Panel -->
+        <div class="config-panel" id="config-panel">
+             <div class="config-row">
+                <div class="config-group">
+                    <label for="auth-token">Webhook Auth Token</label>
+                    <input type="password" id="auth-token" placeholder="Your webhook auth token">
+                </div>
+                <div class="config-group" style="flex: 0 0 auto;">
+                    <label>&nbsp;</label>
+                    <button class="config-button" onclick="snykAuditUI.saveConfig()">Save & Connect</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div class="chat-messages" id="chat-messages">
+            <div class="welcome-message">
+                <h3>👋 Welcome to SnykAudit Assistant!</h3>
+                <p>I can help you monitor Snyk audit logs for security events and user activities.</p>
+                <p>Please enter your Webhook Auth Token in the settings (⚙️) to get started.</p>
+            </div>
+        </div>
+
+        <!-- Typing Indicator -->
+        <div class="typing-indicator" id="typing-indicator">
+            <div class="message-avatar" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white;">🛡️</div>
+            <div class="typing-dots">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+            </div>
+        </div>
+
+        <!-- Input -->
+        <div class="chat-input-container">
+            <div class="quick-actions">
+                <div class="quick-action" onclick="snykAuditUI.sendQuickMessage('Show me recent security events')">🔒 Security Events</div>
+                <div class="quick-action" onclick="snykAuditUI.sendQuickMessage('Any suspicious activity in the last 24 hours?')">🔍 Suspicious Activity</div>
+                <div class="quick-action" onclick="snykAuditUI.sendQuickMessage('Show me after-hours activity')">🌙 After Hours</div>
+                <div class="quick-action" onclick="snykAuditUI.sendQuickMessage('Help')">❓ Help</div>
+            </div>
+            <div class="chat-input-wrapper">
+                <textarea 
+                    class="chat-input" 
+                    id="chat-input" 
+                    placeholder="Ask me about your Snyk audit logs..."
+                    rows="1"
+                    onkeydown="snykAuditUI.handleKeyDown(event)"
+                    oninput="snykAuditUI.adjustTextareaHeight(this)"
+                    disabled
+                ></textarea>
+                <button class="send-button" id="send-button" onclick="snykAuditUI.sendMessage()" disabled>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22,2 15,22 11,13 2,9"></polygon>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- SnykAudit Chatbot UI JavaScript ---
+        
+        let snykAuditUI;
+
+        class SnykAuditUI {
+            constructor() {
+                this.messages = [];
+                this.authToken = null;
+                this.init();
+            }
+
+            init() {
+                console.log('Initializing SnykAudit UI...');
+                this.loadConfig();
+                this.setupEventListeners(); // This was the missing function call
+                document.getElementById('chat-input').focus();
+                console.log('SnykAudit UI initialized');
+            }
+            
+            // CORRECTED: Added the missing setupEventListeners method
+            setupEventListeners() {
+                const chatInput = document.getElementById('chat-input');
+                chatInput.addEventListener('input', () => this.adjustTextareaHeight(chatInput));
+            }
+
+            loadConfig() {
+                const savedAuthToken = localStorage.getItem('snyk-auth-token');
+                if (savedAuthToken) {
+                    document.getElementById('auth-token').value = savedAuthToken;
+                    this.authToken = savedAuthToken;
+                    this.updateStatus('Ready', 'green', true);
+                    this.enableInput();
+                }
+            }
+
+            saveConfig() {
+                const authTokenInput = document.getElementById('auth-token').value.trim();
+                if (!authTokenInput) {
+                    alert('Please enter the Webhook Auth Token');
+                    return;
+                }
+                this.authToken = authTokenInput;
+                localStorage.setItem('snyk-auth-token', this.authToken);
+                document.getElementById('config-panel').classList.remove('show');
+                this.updateStatus('Ready', 'green', true);
+                this.enableInput();
+                if (this.messages.length === 0) {
+                   this.addBotMessage("I'm connected and ready to help. What would you like to know?");
+                }
+            }
+            
+            enableInput() {
+                document.getElementById('chat-input').disabled = false;
+                document.getElementById('send-button').disabled = false;
+            }
+
+            updateStatus(text, color, pulse = false) {
+                const statusText = document.getElementById('status-text');
+                const statusDot = document.getElementById('status-dot');
+                
+                statusText.textContent = text;
+                statusDot.style.background = color === 'green' ? '#4ade80' : 
+                                              color === 'yellow' ? '#fbbf24' : '#ef4444';
+                if (pulse) {
+                    statusDot.classList.add('pulse');
+                } else {
+                    statusDot.classList.remove('pulse');
+                }
+            }
+
+            adjustTextareaHeight(textarea) {
+                textarea.style.height = 'auto';
+                textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+            }
+
+            async sendMessage(text = null) {
+                const input = document.getElementById('chat-input');
+                const message = text || input.value.trim();
+                
+                if (!message) return;
+                
+                if (!text) {
+                    input.value = '';
+                    this.adjustTextareaHeight(input);
+                }
+                
+                this.addUserMessage(message);
+                this.showTyping();
+                
+                try {
+                    const response = await this.processMessageWithBackend(message);
+                    this.hideTyping();
+                    this.addBotMessage(response.message || 'I received your message, but I\'m not sure how to respond.');
+                } catch (error) {
+                    console.error('Error processing message:', error);
+                    this.hideTyping();
+                    this.addBotMessage(`Sorry, I encountered an error: ${error.message}`);
+                }
+            }
+
+            async processMessageWithBackend(message) {
+                if (!this.authToken) {
+                    return {
+                        message: "I'm not connected yet. Please provide the Webhook Auth Token in the settings (⚙️) above.",
+                        success: false
+                    };
+                }
+
+                this.updateStatus('Thinking...', 'yellow');
+
+                try {
+                    const response = await fetch('http://localhost:3001/webhook', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${this.authToken}`
+                        },
+                        body: JSON.stringify({ message: message })
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || `Request failed with status ${response.status}`);
+                    }
+                    
+                    this.updateStatus('Ready', 'green', true);
+                    return await response.json();
+
+                } catch (error) {
+                    this.updateStatus('Error', 'red');
+                    console.error("Fetch error:", error);
+                    throw error;
+                }
+            }
+
+            addUserMessage(text) {
+                this.addMessage(text, 'user');
+            }
+
+            addBotMessage(text) {
+                this.addMessage(text, 'bot');
+            }
+
+            addMessage(text, sender) {
+                const messagesContainer = document.getElementById('chat-messages');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${sender}`;
+                
+                const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                
+                messageDiv.innerHTML = `
+                    <div class="message-avatar">${sender === 'user' ? '👤' : '<img src="/snyk-logo.png" alt="Snyk" style="width: 20px; height: 20px;">'}</div>
+                    <div class="message-content">
+                        <div class="message-bubble">${this.formatMessageText(text)}</div>
+                        <div class="message-time">${timestamp}</div>
+                    </div>
+                `;
+                
+                messagesContainer.appendChild(messageDiv);
+                
+                const welcomeMessage = messagesContainer.querySelector('.welcome-message');
+                if (welcomeMessage) {
+                    welcomeMessage.remove();
+                }
+                
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                this.messages.push({ text, sender, timestamp });
+            }
+
+            formatMessageText(text) {
+                return text.replace(/\n/g, '<br>');
+            }
+
+            showTyping() {
+                document.getElementById('typing-indicator').classList.add('show');
+                const messagesContainer = document.getElementById('chat-messages');
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+
+            hideTyping() {
+                document.getElementById('typing-indicator').classList.remove('show');
+            }
+
+            // --- CORRECTED: Moved global functions into the class ---
+            toggleConfig() {
+                document.getElementById('config-panel').classList.toggle('show');
+            }
+
+            sendQuickMessage(message) {
+                this.sendMessage(message);
+            }
+
+            handleKeyDown(event) {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    this.sendMessage();
+                }
+            }
+        }
+
+        // Initialize the UI when the page loads.
+        document.addEventListener('DOMContentLoaded', () => {
+            snykAuditUI = new SnykAuditUI();
+        });
+    </script>
+</body>
+</html>

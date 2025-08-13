@@ -2,21 +2,26 @@
 
 /**
  * Entity Extractor for SnykAudit Chatbot
- * 
- * This component extracts named entities from user messages,
+ * * This component extracts named entities from user messages,
  * such as usernames, time periods, and event types.
  */
 class EntityExtractor {
   constructor() {
-    // Define entity extraction patterns
     this.entityPatterns = {
       user_id: [
-        /@([\w.-]+)/,                // @username format
-        /user ([\w.-]+)/i,           // "user username" format
-        /what (has|did) ([\w.-]+)/i, // "what did username" format
-        /([\w.-]+)'s activity/i,     // "username's activity" format
-        /activity (by|for|of) ([\w.-]+)/i, // "activity by username" format
-        /actions (by|from) ([\w.-]+)/i     // "actions by username" format
+        /@([\w.-]+)/,
+        /user ([\w.-]+)/i,
+        /what (has|did) ([A-Z][a-z]+)/i,  // Updated to match proper names (capitalized first letter)
+        /([A-Z][a-z]+)'s activity/i,  // Updated to match proper names
+        // Modified to prevent 'activity' from being extracted as a username
+        /activity (by|for|of) ([A-Z][a-z]+)/i,  // Updated to match proper names
+        // Added a negative lookahead to exclude the word 'activity' itself
+        /activity (by|for|of) (?!activity)([A-Z][a-z]+)/i,  // Updated to match proper names
+        /actions (by|from) ([A-Z][a-z]+)/i,  // Updated to match proper names
+        // New patterns specifically for proper names
+        /what ([A-Z][a-z]+) (has|did|was)/i,  // "What Cesar has been doing"
+        /show ([A-Z][a-z]+)/i,  // "Show Cesar"
+        /about ([A-Z][a-z]+)/i  // "Tell me about Cesar"
       ],
       
       time_period: [
@@ -42,16 +47,20 @@ class EntityExtractor {
         /during (.*)/i
       ],
       
+      // UPDATED: Added more specific event types to the main patterns
       event_type: [
         /policy changes/i,
-        /policy (create|edit|delete)/i,
         /integration changes/i,
-        /integration (create|edit|delete)/i,
         /webhook changes/i,
         /service account changes/i,
         /project changes/i,
-        /user (add|remove|invite)/i,
-        /role changes/i
+        /user changes/i,
+        /role changes/i,
+        /sast settings changes/i,
+        /target changes/i,
+        /app changes/i,
+        /collection changes/i,
+        /(modified|changed|updated|created|deleted|added|removed) (integrations|policies|webhooks|users|roles|projects|service accounts|sast settings|targets|apps|collections)/i
       ],
       
       count_limit: [
@@ -65,11 +74,6 @@ class EntityExtractor {
     };
   }
 
-  /**
-   * Extract entities from a user message
-   * @param {string} message - User message text
-   * @returns {Object} - Extracted entities
-   */
   extractEntities(message) {
     if (!message || typeof message !== 'string') {
       return {};
@@ -77,7 +81,6 @@ class EntityExtractor {
     
     const entities = {};
     
-    // Extract each entity type
     for (const [entityType, patterns] of Object.entries(this.entityPatterns)) {
       const extractedEntity = this._extractEntityWithPatterns(message, patterns, entityType);
       if (extractedEntity !== null) {
@@ -85,7 +88,6 @@ class EntityExtractor {
       }
     }
     
-    // Special handling for advanced time period extraction
     if (!entities.time_period && !entities.time_range) {
       const timeEntity = this._extractTimeEntity(message);
       if (timeEntity) {
@@ -96,43 +98,31 @@ class EntityExtractor {
     return entities;
   }
 
-  /**
-   * Extract entity using array of patterns
-   * @param {string} message - User message
-   * @param {Array<RegExp>} patterns - Patterns to match
-   * @param {string} entityType - Type of entity being extracted
-   * @returns {string|null} - Extracted entity or null if not found
-   * @private
-   */
   _extractEntityWithPatterns(message, patterns, entityType) {
     for (const pattern of patterns) {
       const match = message.match(pattern);
       if (match) {
-        // Different entity types have different extraction logic
         switch (entityType) {
           case 'user_id':
-            // For user_id, return the captured group, which is the username
-            return match[match.length - 1]; // Last capture group contains the username
+            return match[match.length - 1];
             
           case 'time_period':
-            // For time_period, either return the full match or process it
             return this._processTimePeriod(match);
             
           case 'time_range':
-            // For time_range, return the full match
             return match[0];
             
           case 'event_type':
-            // For event_type, clean up the match
+            if (match[2]) {
+                return `${match[2].replace(/s$/, '')} ${match[1]}`;
+            }
             return match[0].toLowerCase().replace(/changes/i, '').trim();
             
           case 'count_limit':
-            // For count_limit, extract the number
             const num = parseInt(match[1], 10);
             return isNaN(num) ? null : num;
             
           default:
-            // Default to returning the first capture group or full match
             return match[1] || match[0];
         }
       }
@@ -141,59 +131,27 @@ class EntityExtractor {
     return null;
   }
 
-  /**
-   * Process time period matches into a standardized format
-   * @param {Array} match - Regex match result
-   * @returns {string} - Processed time period
-   * @private
-   */
   _processTimePeriod(match) {
-    // For patterns like "last 5 days"
     if (match[1] && !isNaN(parseInt(match[1], 10))) {
       const count = match[1];
       const unit = match[2] || 'days';
       return `${count} ${unit}`;
     }
-    
-    // For patterns like "last week"
     if (match[0].toLowerCase().includes('last')) {
       const unit = match[1] || match[0].split(' ')[1] || 'day';
       return `last ${unit}`;
     }
-    
-    // For patterns like "yesterday"
-    if (match[0].toLowerCase().includes('yesterday')) {
-      return 'yesterday';
-    }
-    
-    // For patterns like "today"
-    if (match[0].toLowerCase().includes('today')) {
-      return 'today';
-    }
-    
-    // For patterns like "this week"
+    if (match[0].toLowerCase().includes('yesterday')) return 'yesterday';
+    if (match[0].toLowerCase().includes('today')) return 'today';
     if (match[0].toLowerCase().includes('this')) {
       const unit = match[0].split(' ')[1] || 'day';
       return `this ${unit}`;
     }
-    
-    // For patterns like "recently"
-    if (match[0].toLowerCase().includes('recent')) {
-      return 'recent';
-    }
-    
-    // Default to returning the original match
+    if (match[0].toLowerCase().includes('recent')) return 'recent';
     return match[0];
   }
 
-  /**
-   * Advanced time entity extraction for complex cases
-   * @param {string} message - User message
-   * @returns {Object|null} - Extracted time entity or null
-   * @private
-   */
   _extractTimeEntity(message) {
-    // Look for date references
     const datePatterns = [
       { regex: /since (last|this) (monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i, type: 'time_period' },
       { regex: /(january|february|march|april|may|june|july|august|september|october|november|december) (\d{1,2})(st|nd|rd|th)?/i, type: 'time_range' },

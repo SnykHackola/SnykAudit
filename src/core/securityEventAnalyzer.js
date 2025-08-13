@@ -1,7 +1,13 @@
 // src/core/securityEventAnalyzer.js
 
 class SecurityEventAnalyzer {
-  constructor() {
+  /**
+   * Create a new SecurityEventAnalyzer
+   * @param {SnykAuditService} auditService - The audit service to use for user information
+   */
+  constructor(auditService = null) {
+    this.auditService = auditService;
+    // Define security-critical events
     // Define security-critical events
     this.securityCriticalEvents = [
       'org.policy.create', 'org.policy.edit', 'org.policy.delete',
@@ -35,7 +41,7 @@ class SecurityEventAnalyzer {
    * @param {Array} events - List of audit log events
    * @returns {Object} - Events categorized by severity
    */
-  categorizeSecurityEvents(events) {
+  async categorizeSecurityEvents(events) {
     const result = {
       highPriority: [],
       mediumPriority: [],
@@ -62,34 +68,86 @@ class SecurityEventAnalyzer {
    * @param {Object} categorizedEvents - Events categorized by severity
    * @returns {string} - Summary message
    */
-  generateSecuritySummary(categorizedEvents, days = 7) {
+  async generateSecuritySummary(categorizedEvents, days = 7) {
     let message = `I've checked the last ${days} days of audit logs for security events.\n\n`;
     
     // Add high priority events
     if (categorizedEvents.highPriority.length > 0) {
       message += `🔴 High Priority (${categorizedEvents.highPriority.length} events):\n`;
-      categorizedEvents.highPriority.slice(0, 5).forEach(event => {
-        const user = event.content?.user_id || event.content?.performed_by || 'unknown';
+      for (const event of categorizedEvents.highPriority.slice(0, 5)) {
+        const userDisplay = await this._formatUser(event.user_id || event.content?.user_id || event.content?.performed_by);
         const time = this._formatTimeAgo(event.created);
-        message += `- ${this._formatEventType(event.event)} by ${user} (${time})\n`;
-      });
+        message += `- ${this._formatEventType(event.event)} by ${userDisplay} (${time})\n`;
+      }
       message += '\n';
     }
     
     // Add medium priority events
     if (categorizedEvents.mediumPriority.length > 0) {
       message += `🟠 Medium Priority (${categorizedEvents.mediumPriority.length} events):\n`;
-      categorizedEvents.mediumPriority.slice(0, 5).forEach(event => {
-        const user = event.content?.user_id || event.content?.performed_by || 'unknown';
+      for (const event of categorizedEvents.mediumPriority.slice(0, 5)) {
+        const userDisplay = await this._formatUser(event.user_id || event.content?.user_id || event.content?.performed_by);
         const time = this._formatTimeAgo(event.created);
-        message += `- ${this._formatEventType(event.event)} by ${user} (${time})\n`;
-      });
+        message += `- ${this._formatEventType(event.event)} by ${userDisplay} (${time})\n`;
+      }
       message += '\n';
     }
     
-    // Add summary of low priority events
+    // Add low priority events with special handling for SAST settings
     if (categorizedEvents.lowPriority.length > 0) {
-      message += `🟢 Low Priority: ${categorizedEvents.lowPriority.length} events\n\n`;
+      message += `🟢 Low Priority: ${categorizedEvents.lowPriority.length} events\n`;
+      
+      // Check for SAST settings changes specifically
+      const sastEvents = categorizedEvents.lowPriority.filter(event => event.event === 'org.sast_settings.edit');
+      if (sastEvents.length > 0) {
+        message += '\n📊 SAST Settings Changes:\n';
+        for (const event of sastEvents) {
+          const time = this._formatTimeAgo(event.created);
+          const userDisplay = await this._formatUser(event.user_id || event.content?.user_id || event.content?.performed_by);
+          
+          // Extract changes from the event content
+          const changes = event.content?.changes || {};
+          const before = event.content?.before?.sastSettings || {};
+          const after = event.content?.after?.sastSettings || {};
+          
+          // Check if SAST was enabled or disabled
+          let sastAction = 'modified';
+          let detailedChanges = [];
+          
+          // Check for enabled/disabled status change
+          if (after.sastEnabled === true && before.sastEnabled !== true) {
+            sastAction = 'enabled';
+          } else if (before.sastEnabled === true && after.sastEnabled !== true) {
+            sastAction = 'disabled';
+          }
+          
+          // Check for specific setting changes
+          if (changes) {
+            // Check for changes in specific SAST settings
+            if (changes.sastEnabled) {
+              detailedChanges.push(`SAST scanning ${changes.sastEnabled.to ? 'enabled' : 'disabled'}`);
+            }
+            
+            // Check for changes in PR checks
+            if (changes.sastPullRequestEnabled) {
+              detailedChanges.push(`PR checks ${changes.sastPullRequestEnabled.to ? 'enabled' : 'disabled'}`);
+            }
+            
+            // Check for changes in severity threshold
+            if (changes.sastSeverityThreshold) {
+              detailedChanges.push(`severity threshold changed to ${changes.sastSeverityThreshold.to}`);
+            }
+          }
+          
+          // Create the message line
+          if (detailedChanges.length > 0) {
+            message += `- SAST settings modified by ${userDisplay} (${time}): ${detailedChanges.join(', ')}\n`;
+          } else {
+            message += `- SAST was ${sastAction} by ${userDisplay} (${time})\n`;
+          }
+        }
+        message += '\n';
+      }
     }
     
     // If no events found
@@ -129,6 +187,28 @@ class SecurityEventAnalyzer {
         // Just clean up the raw event type
         return eventType.replace(/\./g, ' ').replace(/org |group /, '');
     }
+  }
+
+  /**
+   * Format user ID into a more readable format
+   * @param {string} userId - User ID
+   * @returns {string} - Formatted user display
+   */
+  async _formatUser(userId) {
+    if (!userId) return 'unknown user';
+    
+    // If we have an audit service, use it to get user information
+    if (this.auditService) {
+      try {
+        return await this.auditService.formatUserDisplay(userId);
+      } catch (error) {
+        console.error(`Error formatting user: ${error.message}`);
+      }
+    }
+    
+    // Fallback to simple formatting if no audit service or if there was an error
+    const shortId = userId.substring(0, 8);
+    return `user ${shortId}`;
   }
 
   /**
